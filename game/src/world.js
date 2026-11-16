@@ -16,6 +16,10 @@ import { spawnPickup, applyPickup } from './pickups.js';
 import { rollChoices } from './upgrades.js';
 import { loadBest, saveBest } from './storage.js';
 
+// The attract rotation behind the title screen: one of each main foe kind
+// drifts in over time, so the title already shows the variety a run holds.
+const TITLE_KINDS = ['cinder', 'wisp', 'spitter', 'splitter', 'brute', 'cinder', 'wisp'];
+
 export function createWorld(seed, audio) {
   const rng = (() => {
     let a = seed >>> 0;
@@ -58,6 +62,7 @@ export function createWorld(seed, audio) {
     stats: null,
     paused: false,
     bossRef: null,
+    titleKindIdx: 0, // attract-mode rotation: which foe kind drifts in next
     // Methods other modules call on the world (kept here so enemies.js and
     // pickups.js never need to import world.js back).
     banner(text, color) {
@@ -134,7 +139,7 @@ export function startGame(world) {
 
 export function nextWave(world) {
   world.wave += 1;
-  world.spawnQueue = waveComp(world.wave);
+  world.spawnQueue = waveComp(world.wave, world.rng);
   world.spawnTimer = 0.4;
   world.banner(waveTitle(world.wave), world.wave === WAVES_TOTAL ? '#ff2e63' : '#ffb347');
   if (world.wave === WAVES_TOTAL) world.audio.bossRoar();
@@ -277,12 +282,34 @@ export function update(world, input, dt) {
   world.fx.update(dt);
 
   if (world.phase === 'title') {
-    // Idle drift: a few embers wander the arena behind the title.
-    if (world.enemies.length < 5 && world.rng() < dt * 0.5) {
+    // Attract mode: foes of every kind drift in from the edges and slowly
+    // circle the Warden at his post — the title screen is the game idling,
+    // not a separate picture. Nothing hunts or shoots here.
+    if (world.enemies.length < TITLE_KINDS.length && world.rng() < dt * 0.7) {
       const s = edgeSpawn(world);
-      spawnEnemy(world, 'cinder', s.x, s.y);
+      const e = spawnEnemy(world, TITLE_KINDS[world.titleKindIdx % TITLE_KINDS.length], s.x, s.y);
+      world.titleKindIdx += 1;
+      e.orbitPhase = world.rng() * Math.PI * 2;
     }
-    for (const e of world.enemies) updateEnemy(world, e, dt);
+    const cx = ARENA.x + ARENA.w / 2;
+    const cy = ARENA.y + ARENA.h / 2;
+    for (const e of world.enemies) {
+      e.t += dt;
+      if (e.flash > 0) e.flash -= dt;
+      if (e.orbitPhase === undefined) e.orbitPhase = world.rng() * Math.PI * 2;
+      const a = e.orbitPhase + world.time * 0.16;
+      const tx = cx + Math.cos(a) * 330;
+      const ty = cy + Math.sin(a) * 195;
+      const d = Math.hypot(tx - e.x, ty - e.y);
+      if (d > 4) {
+        const step = Math.min(d, e.speed * 0.38 * dt);
+        e.x += ((tx - e.x) / d) * step;
+        e.y += ((ty - e.y) / d) * step;
+      }
+      e.angle = Math.atan2(cy - e.y, cx - e.x);
+    }
+    // A slow rain of embers off the lantern, so the still arena breathes.
+    if (world.rng() < dt * 6) world.fx.embers(cx, cy - 10, 1);
     return;
   }
 

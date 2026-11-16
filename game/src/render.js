@@ -4,6 +4,7 @@
 
 import { VIEW_W, VIEW_H, ARENA, WAVES_TOTAL, PALETTE, PLAYER } from './config.js';
 import { clamp } from './random.js';
+import { UPGRADES } from './upgrades.js';
 
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -46,7 +47,9 @@ export function drawWorld(ctx, world) {
   drawPickups(ctx, world);
   for (const e of world.enemies) drawEnemy(ctx, world, e);
   drawBullets(ctx, world);
-  if (world.phase !== 'title') drawPlayer(ctx, world);
+  // The Warden stands at his post on the title screen too: the attract arena
+  // circles him while the menu waits.
+  drawPlayer(ctx, world);
   drawFX(ctx, world);
 
   ctx.restore();
@@ -155,6 +158,15 @@ function drawEnemy(ctx, world, e) {
   ctx.translate(e.x, e.y);
   const flash = e.flash > 0;
   const body = flash ? '#ffffff' : e.color;
+
+  // A soft halo in the foe's own colour, so every kind reads at a glance
+  // against the dark floor — and a white bloom on the hit-flash frame.
+  ctx.globalAlpha = flash ? 0.4 : 0.15;
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.arc(0, 0, e.radius * 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
 
   if (e.type === 'cinder' || e.type === 'emberling') {
     // Spiked ember: a jagged little sun.
@@ -273,6 +285,14 @@ function drawEnemy(ctx, world, e) {
 
 function drawBullets(ctx, world) {
   for (const b of world.bullets) {
+    // A tracer streak behind the bolt and a hot core: a stream of fire reads
+    // as motion even in a single still frame.
+    ctx.strokeStyle = 'rgba(255, 179, 71, 0.55)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(b.x - b.vx * 0.03, b.y - b.vy * 0.03);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
     ctx.fillStyle = '#ffd97a';
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.radius + 2, 0, Math.PI * 2);
@@ -283,6 +303,13 @@ function drawBullets(ctx, world) {
     ctx.fill();
   }
   for (const b of world.enemyBullets) {
+    // A halo so incoming orbs are unmissable against the dark.
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.radius * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = b.color;
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
@@ -422,6 +449,13 @@ function drawHUD(ctx, world) {
   bar(ctx, 24, VIEW_H - 18, 120, 8, dashFrac, '#ffd97a');
   text(ctx, 'WASD move · mouse aim · hold click to fire · P pause · M mute', VIEW_W - 24, VIEW_H - 22, 12, PALETTE.textDim, 'right');
 
+  // The blessings drafted so far (bottom-centre): the run's build at a glance.
+  const owned = UPGRADES.filter((u) => (p.owned[u.id] ?? 0) > 0);
+  if (owned.length > 0) {
+    const label = owned.map((u) => `${u.icon}×${p.owned[u.id]}`).join('   ');
+    text(ctx, label, VIEW_W / 2, VIEW_H - 22, 13, PALETTE.ember, 'center');
+  }
+
   // Boss bar.
   if (world.bossRef) {
     const b = world.bossRef;
@@ -430,25 +464,68 @@ function drawHUD(ctx, world) {
   }
 }
 
+// The lantern mark over the title: a ring, a cap and a living flame, drawn
+// the way the Warden's own lantern is drawn in the arena.
+function drawLanternEmblem(ctx, x, y, flicker) {
+  ctx.save();
+  ctx.translate(x, y);
+  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 54 * flicker);
+  glow.addColorStop(0, 'rgba(255, 179, 71, 0.5)');
+  glow.addColorStop(1, 'rgba(255, 179, 71, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(0, 0, 54 * flicker, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = PALETTE.ember;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, 21, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-9, -25);
+  ctx.lineTo(9, -25);
+  ctx.stroke();
+  // The flame: a teardrop that leans with the flicker.
+  ctx.fillStyle = PALETTE.emberHot;
+  ctx.beginPath();
+  ctx.moveTo(0, -13);
+  ctx.quadraticCurveTo(9 * flicker, 2, 0, 12);
+  ctx.quadraticCurveTo(-9 * flicker, 2, 0, -13);
+  ctx.fill();
+  ctx.fillStyle = '#fff6d8';
+  ctx.beginPath();
+  ctx.arc(0, 4, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawTitle(ctx, world) {
-  ctx.fillStyle = 'rgba(4, 6, 12, 0.62)';
+  // A lighter veil than a plain menu's: the attract arena — the Warden at his
+  // post, every foe kind circling him — stays readable behind the words.
+  ctx.fillStyle = 'rgba(4, 6, 12, 0.52)';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
 
-  text(ctx, 'EMBERWARD', VIEW_W / 2, 168, 92, PALETTE.ember);
-  text(ctx, '— hold the last light —', VIEW_W / 2, 232, 24, PALETTE.textDim);
+  drawLanternEmblem(ctx, VIEW_W / 2, 76, 0.8 + 0.2 * Math.sin(world.time * 2.2));
+  text(ctx, 'EMBERWARD', VIEW_W / 2, 178, 92, PALETTE.ember);
+  text(ctx, '— hold the last light —', VIEW_W / 2, 242, 24, PALETTE.textDim);
   text(
     ctx,
     'The night has swallowed the valley. You are the last Warden, and your lantern is the last light.',
-    VIEW_W / 2, 292, 18, PALETTE.text,
+    VIEW_W / 2, 298, 18, PALETTE.text,
   );
   text(
     ctx,
     'Survive 10 waves. Slay the Ash Titan. Choose your upgrades between waves.',
-    VIEW_W / 2, 320, 18, PALETTE.text,
+    VIEW_W / 2, 326, 18, PALETTE.text,
+  );
+  text(
+    ctx,
+    '10 WAVES  ·  SIX KINDS OF FOE  ·  A BLESSING DRAFTED EVERY WAVE  ·  ONE ASH TITAN',
+    VIEW_W / 2, 366, 15, PALETTE.emberHot,
   );
 
-  text(ctx, 'WASD / ARROWS — move      MOUSE — aim      HOLD CLICK — fire', VIEW_W / 2, 396, 17, PALETTE.text);
-  text(ctx, 'SPACE — dash      P — pause      M — mute', VIEW_W / 2, 424, 17, PALETTE.text);
+  text(ctx, 'WASD / ARROWS — move      MOUSE — aim      HOLD CLICK — fire', VIEW_W / 2, 412, 17, PALETTE.text);
+  text(ctx, 'SPACE — dash      P — pause      M — mute', VIEW_W / 2, 440, 17, PALETTE.text);
 
   // Pulsing start prompt.
   const pulse = 0.65 + 0.35 * Math.sin(world.time * 3.4);
@@ -496,6 +573,15 @@ function drawEndScreen(ctx, world, won) {
   const s = world.stats || { score: world.score, wave: world.wave, kills: world.kills, accuracy: 0, time: world.runTime };
   ctx.fillStyle = won ? 'rgba(10, 16, 6, 0.66)' : 'rgba(12, 6, 8, 0.66)';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+
+  if (won) {
+    // Dawn breaking over the top of the frame behind the panel.
+    const dawn = ctx.createRadialGradient(VIEW_W / 2, 60, 30, VIEW_W / 2, 60, 520);
+    dawn.addColorStop(0, 'rgba(255, 217, 122, 0.20)');
+    dawn.addColorStop(1, 'rgba(255, 217, 122, 0)');
+    ctx.fillStyle = dawn;
+    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  }
 
   if (won) {
     text(ctx, 'THE DAWN RETURNS', VIEW_W / 2, 150, 64, '#ffd97a');

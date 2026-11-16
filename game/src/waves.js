@@ -1,9 +1,11 @@
 // Wave composition: what spawns, in what order, on each of the 10 waves.
 // Early waves teach one enemy kind at a time; later waves mix them, and wave 10
 // is the Ash Titan with a cinder trickle. The spawn queue is consumed by world.js
-// on a timer that tightens as the wave number grows.
+// on a timer that tightens as the wave number grows. The shuffle draws from the
+// world's seeded RNG, so a run (and a staged screenshot scene) is reproducible
+// from its seed alone.
 
-export function waveComp(wave) {
+export function waveComp(wave, rng = Math.random) {
   const list = [];
   const add = (type, count) => {
     for (let i = 0; i < count; i++) list.push(type);
@@ -76,7 +78,7 @@ export function waveComp(wave) {
   // Shuffle, but keep the boss first on wave 10 and never front-load brutes.
   const head = list[0] === 'boss' ? [list.shift()] : [];
   for (let i = list.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [list[i], list[j]] = [list[j], list[i]];
   }
   return [...head, ...list];

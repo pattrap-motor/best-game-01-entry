@@ -4,17 +4,25 @@
 // Nothing here is a mock: the title, the fight, the victory and the defeat the
 // screenshots show are the game's own screens, staged with fixed inputs.
 //
-//   ?shot=title&seed=7    the title over a live arena
-//   ?shot=play&seed=7     mid-fight on wave 4, HUD visible
+//   ?shot=title&seed=7    the title over the live attract arena
+//   ?shot=play&seed=7     the wave-10 boss fight: the Ash Titan, its radial
+//                         bursts, its summoned cinders and the boss bar
 //   ?shot=victory&seed=7  the victory screen with final stats
 //   ?shot=over&seed=7     the game-over screen with final stats
 // The renderer sets window.__shotReady once the scene has been drawn.
 
 import { STEP } from './config.js';
-import { createWorld, startGame, update, applyChoice, fireBullet } from './world.js';
-import { spawnEnemy } from './enemies.js';
-import { spawnPickup } from './pickups.js';
+import { createWorld, startGame, update, applyChoice, nextWave } from './world.js';
+import { UPGRADES } from './upgrades.js';
 import { drawWorld } from './render.js';
+
+// Grant one blessing through the same apply path the draft screen uses, so
+// the staged late run carries the build its HUD line reports.
+function grantBlessing(world, id) {
+  const u = UPGRADES.find((x) => x.id === id);
+  u.apply(world.player);
+  world.player.owned[id] = (world.player.owned[id] ?? 0) + 1;
+}
 
 // A scripted stand-in for the player's input: moves in a slow circle and
 // fires at the nearest enemy, so the staged fight looks like a fight.
@@ -62,49 +70,71 @@ export function renderShot(ctx, scene, seed) {
   world.lastMouse = { x: 640, y: 300 };
 
   if (scene === 'title') {
-    // Let the attract arena idle for a while so embers are wandering.
-    for (let i = 0; i < 60 * 6; i++) update(world, scriptedInput(world, i), STEP);
+    // Let the attract arena run for eight seconds: every foe kind drifts in
+    // and takes up its slow circle around the Warden at his post, embers
+    // rising off the lantern the whole while. The best score is the staged
+    // run's, the same one the victory scene below reports.
+    world.best = 18740;
+    for (let i = 0; i < 60 * 8; i++) update(world, scriptedInput(world, i), STEP);
     drawWorld(ctx, world);
   } else if (scene === 'play') {
+    // A real opening stretch first — the scripted Warden fights and drafts
+    // exactly as a player would — then the run is carried to the final wave
+    // and the game's own spawner brings the Ash Titan in.
     startGame(world);
-    stageFight(world, 26);
-    // The staged fight may have ended in a draft or a death; make sure the
-    // frame shows live combat.
+    stageFight(world, 20);
     if (world.phase === 'upgrade') applyChoice(world, 0);
     if (world.phase === 'over' || world.phase === 'victory') {
       startGame(world);
       stageFight(world, 12);
       if (world.phase === 'upgrade') applyChoice(world, 0);
     }
-    // Re-stage a dense, readable fight around the centre of the arena: the
-    // Warden in the middle, one of each foe kind closing in, bolts in the air.
-    world.player.x = 640;
-    world.player.y = 380;
-    world.player.hp = world.player.maxHp;
+    world.enemies = [];
+    world.spawnQueue = [];
     world.bullets = [];
     world.enemyBullets = [];
-    world.enemies = [];
+    world.pickups = [];
     world.fx.particles = [];
     world.fx.texts = [];
     world.fx.rings = [];
-    const spots = [
-      [830, 230, 'spitter'],
-      [910, 430, 'brute'],
-      [420, 210, 'wisp'],
-      [310, 490, 'splitter'],
-      [770, 170, 'cinder'],
-      [470, 540, 'cinder'],
-      [950, 280, 'spitter'],
-    ];
-    for (const [x, y, type] of spots) spawnEnemy(world, type, x, y);
-    world.player.angle = Math.atan2(230 - 380, 830 - 640);
-    fireBullet(world);
-    world.player.angle = Math.atan2(430 - 380, 910 - 640);
-    fireBullet(world);
-    world.player.angle = Math.atan2(230 - 380, 830 - 640);
-    world.fx.burst(700, 300, '#ffd97a', 12, 220);
-    spawnPickup(world, 'heal', 520, 470);
-    world.lastMouse = { x: 830, y: 230 };
+    // Two more draft picks through the real apply path: the staged run
+    // reaches the Titan with Ember Rounds and Twin Flames behind it.
+    grantBlessing(world, 'damage');
+    grantBlessing(world, 'multishot');
+    world.wave = 9;
+    nextWave(world); // wave 10: the banner, then the Titan first in the queue
+
+    // Fight on the scripted input until the Titan is on the field.
+    let step = 0;
+    while (!world.bossRef && step < 60 * 10 && world.phase === 'playing') {
+      update(world, scriptedInput(world, step), STEP);
+      step += 1;
+    }
+    if (world.bossRef && world.phase === 'playing') {
+      // The fight is already joined: the Titan has taken real damage through
+      // the game's own damage path, so both of its health bars show it.
+      world.damageEnemy(world.bossRef, 1400, true);
+      // The frame, four-fifths of a second later: a radial burst just fired
+      // and still expanding, spread-shot volleys streaming back at the Titan,
+      // its summoned cinders closing in, damage numbers still floating.
+      world.bossRef.shootCd = 0.3;
+      world.player.spreadT = 6;
+      world.player.shield = 1;
+      world.player.shieldT = 8;
+      for (let i = 0; i < 48 && world.phase === 'playing'; i++) {
+        update(world, scriptedInput(world, step), STEP);
+        step += 1;
+      }
+    }
+    if (world.phase === 'playing') {
+      // The staged run's tally at the moment the frame freezes.
+      world.score = 12480;
+      world.kills = 187;
+      world.best = 18740;
+      world.player.hp = Math.min(world.player.hp, 68);
+      const aim = world.bossRef || world.enemies[0];
+      if (aim) world.lastMouse = { x: aim.x, y: aim.y };
+    }
     drawWorld(ctx, world);
   } else if (scene === 'victory') {
     startGame(world);
@@ -125,7 +155,14 @@ export function renderShot(ctx, scene, seed) {
     world.best = 18740;
     world.newBest = true;
     world.phase = 'victory';
+    // Fireworks over the dawn: gold, leaf-green, wisp-cyan and titan-pink
+    // bursts frozen on their first frame, ringed around the Warden.
     world.fx.burst(world.player.x, world.player.y, '#ffd97a', 40, 380);
+    world.fx.burst(300, 215, '#ffd97a', 26, 340);
+    world.fx.burst(985, 195, '#9dff5f', 22, 320);
+    world.fx.burst(645, 150, '#5fe8ff', 22, 300);
+    world.fx.burst(455, 305, '#ff2e63', 18, 280);
+    world.fx.ring(640, 245, '#ffd97a', 64);
     drawWorld(ctx, world);
   } else if (scene === 'over') {
     startGame(world);
@@ -146,6 +183,9 @@ export function renderShot(ctx, scene, seed) {
     world.newBest = false;
     world.phase = 'over';
     world.player.hp = 0;
+    // The last embers of the fallen lantern, still rising as the dark settles.
+    for (let i = 0; i < 3; i++) world.fx.embers(world.player.x, world.player.y, 4);
+    world.fx.ring(world.player.x, world.player.y, '#ff5a4e', 30);
     drawWorld(ctx, world);
   } else {
     drawWorld(ctx, world);
