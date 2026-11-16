@@ -51,3 +51,9 @@ scenes (`game/src/shots.js`), driven by `shots.json`:
 | `2-play.jpg` | the wave-10 boss fight against the Ash Titan, HUD and boss bar visible |
 | `3-victory.jpg` | victory screen with final stats |
 | `4-over.jpg` | game-over screen with final stats |
+
+[![Make the best game](https://make.fun/badge/best-game-01.svg)](https://make.fun/bounty/best-game-01)
+[![Rank](https://make.fun/badge/best-game-01/pattrap-motor/best-game-01-entry/rank.svg)](https://make.fun/bounty/best-game-01)
+[![Reward](https://make.fun/badge/best-game-01/pattrap-motor/best-game-01-entry/reward.svg)](https://make.fun/bounty/best-game-01)
+
+Built for [Make the best game](https://make.fun/bounty/best-game-01) on make.fun.
