@@ -2,9 +2,10 @@
 // (title, upgrade draft, game over, victory). render.js never changes state —
 // it only reads the world and paints one frame of it.
 
-import { VIEW_W, VIEW_H, ARENA, WAVES_TOTAL, PALETTE, PLAYER } from './config.js';
+import { VIEW_W, VIEW_H, ARENA, WAVES_TOTAL, PALETTE, PLAYER, COMBO } from './config.js';
 import { clamp } from './random.js';
 import { UPGRADES } from './upgrades.js';
+import { comboColor } from './combo.js';
 
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -44,6 +45,7 @@ export function drawWorld(ctx, world) {
   ctx.translate(off.x, off.y);
 
   drawBackground(ctx, world);
+  drawDecals(ctx, world);
   drawPickups(ctx, world);
   for (const e of world.enemies) drawEnemy(ctx, world, e);
   drawBullets(ctx, world);
@@ -133,6 +135,27 @@ function drawBackground(ctx, world) {
   ctx.strokeRect(ARENA.x, ARENA.y, ARENA.w, ARENA.h);
 }
 
+// Scorch decals: the floor remembers the fight. Each mark is a dark burn
+// with a rim of the fallen foe's colour, fading over seconds — drawn under
+// everything that still moves.
+function drawDecals(ctx, world) {
+  for (const d of world.fx.decals) {
+    const fade = clamp(d.life / d.maxLife, 0, 1);
+    ctx.globalAlpha = fade * 0.5;
+    ctx.fillStyle = '#05070d';
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = fade * 0.4;
+    ctx.strokeStyle = d.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.radius * 0.78, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawPickups(ctx, world) {
   for (const pk of world.pickups) {
     const colors = { heal: '#7dff8a', shield: '#5fe8ff', spread: '#ffd97a', bomb: '#ff5a4e' };
@@ -167,6 +190,32 @@ function drawEnemy(ctx, world, e) {
   ctx.arc(0, 0, e.radius * 2.1, 0, Math.PI * 2);
   ctx.fill();
   ctx.globalAlpha = 1;
+
+  // The lancer's telegraph: a dashed line down its charge path. It tracks
+  // in the foe's indigo while the aim still follows the player, and burns
+  // red once the line is locked — the player's cue to move.
+  if (e.type === 'lancer' && e.state === 'aim') {
+    const locked = e.stateT >= 0.38;
+    ctx.strokeStyle = locked ? 'rgba(255, 90, 78, 0.9)' : 'rgba(150, 128, 255, 0.55)';
+    ctx.lineWidth = locked ? 3 : 2;
+    ctx.setLineDash([10, 8]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(e.angle) * 470, Math.sin(e.angle) * 470);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // The Titan's anticipation: as a radial burst charges, a warning ring
+  // swells around it — wind-up first, then the burst.
+  if (e.type === 'boss' && e.shootCd < 0.5 && world.phase === 'playing') {
+    const f = 1 - e.shootCd / 0.5;
+    ctx.strokeStyle = `rgba(255, 46, 99, ${0.25 + 0.5 * f})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, e.radius + 16 + f * 24, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 
   if (e.type === 'cinder' || e.type === 'emberling') {
     // Spiked ember: a jagged little sun.
@@ -228,6 +277,23 @@ function drawEnemy(ctx, world, e) {
     ctx.arc(-6, -4, 4, 0, Math.PI * 2);
     ctx.arc(7, 5, 4, 0, Math.PI * 2);
     ctx.fill();
+  } else if (e.type === 'lancer') {
+    // A sleek dart that points where it means to go.
+    ctx.save();
+    ctx.rotate(e.angle);
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(e.radius + 7, 0);
+    ctx.lineTo(-e.radius, -e.radius * 0.72);
+    ctx.lineTo(-e.radius * 0.45, 0);
+    ctx.lineTo(-e.radius, e.radius * 0.72);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#0d0a2e';
+    ctx.beginPath();
+    ctx.arc(2, 0, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   } else if (e.type === 'brute') {
     // Armoured hexagon with a heavy core.
     ctx.fillStyle = body;
@@ -456,11 +522,25 @@ function drawHUD(ctx, world) {
     text(ctx, label, VIEW_W / 2, VIEW_H - 22, 13, PALETTE.ember, 'center');
   }
 
-  // Boss bar.
+  // The combo meter (bottom-centre, above the blessings): the live chain,
+  // its multiplier, and the draining window that keeps it alive. It heats
+  // through the palette as the multiplier climbs.
+  const c = world.combo;
+  if (c && c.chain > 0) {
+    const col = comboColor(c.mult);
+    text(ctx, `COMBO ×${c.mult}  ·  ${c.chain} CHAIN`, VIEW_W / 2, VIEW_H - 56, c.mult >= 5 ? 25 : 20, col);
+    bar(ctx, VIEW_W / 2 - 60, VIEW_H - 42, 120, 5, c.timer / COMBO.window, col);
+  }
+
+  // Boss bar, with pips where the Titan changes: half health enrages it,
+  // two-fifths brings the spiral.
   if (world.bossRef) {
     const b = world.bossRef;
-    text(ctx, 'THE ASH TITAN', VIEW_W / 2, 84, 16, '#ff2e63', 'center');
+    text(ctx, b.phase === 2 ? 'THE ASH TITAN — ENRAGED' : 'THE ASH TITAN', VIEW_W / 2, 84, 16, '#ff2e63', 'center');
     bar(ctx, VIEW_W / 2 - 260, 98, 520, 12, b.hp / b.maxHp, '#ff2e63');
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillRect(VIEW_W / 2 - 260 + 520 * 0.5 - 1, 98, 2, 12);
+    ctx.fillRect(VIEW_W / 2 - 260 + 520 * 0.4 - 1, 98, 2, 12);
   }
 }
 
@@ -520,7 +600,7 @@ function drawTitle(ctx, world) {
   );
   text(
     ctx,
-    '10 WAVES  ·  SIX KINDS OF FOE  ·  A BLESSING DRAFTED EVERY WAVE  ·  ONE ASH TITAN',
+    '10 WAVES  ·  SEVEN KINDS OF FOE  ·  CHAIN KILLS FOR COMBO ×8  ·  A BLESSING DRAFTED EVERY WAVE  ·  ONE ASH TITAN',
     VIEW_W / 2, 366, 15, PALETTE.emberHot,
   );
 
@@ -597,15 +677,16 @@ function drawEndScreen(ctx, world, won) {
     ['FINAL SCORE', String(s.score)],
     ['WAVE REACHED', `${s.wave} / ${WAVES_TOTAL}`],
     ['FOES SLAIN', String(s.kills)],
+    ['BEST COMBO', `×${s.bestMult ?? 1}  (${s.bestCombo ?? 0} chain)`],
     ['ACCURACY', `${s.accuracy}%`],
     ['TIME', formatTime(s.time)],
     ['BEST SCORE', String(world.best)],
   ];
-  let y = 320;
+  let y = 312;
   for (const [label, value] of rows) {
     text(ctx, label, VIEW_W / 2 - 170, y, 18, PALETTE.textDim, 'left');
     text(ctx, value, VIEW_W / 2 + 170, y, 20, PALETTE.text, 'right');
-    y += 38;
+    y += 36;
   }
   if (world.newBest) {
     text(ctx, '★ NEW BEST SCORE ★', VIEW_W / 2, y + 8, 20, '#ffd97a');

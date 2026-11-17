@@ -1,11 +1,13 @@
-// Enemy kinds, their stats and their behaviour. Six kinds plus the boss:
+// Enemy kinds, their stats and their behaviour. Seven kinds plus the boss:
 //   cinder    — chases the player, the basic melee threat
 //   spitter   — keeps its distance and lobs globs
 //   wisp      — fast, telegraphs, then dashes through the player
 //   splitter  — splits into two emberlings when killed
 //   brute     — slow, armoured, hits hard
+//   lancer    — telegraphs a charge line, then lances through the player
 //   emberling — the splitter's children: small, quick, fragile
-//   ash titan — the wave-10 boss: radial bursts, summons, charges
+//   ash titan — the wave-10 boss: radial bursts, summons, and in its second
+//               phase a twin spiral barrage under two-fifths health
 // Every enemy is a plain object; update functions live here, damage and death
 // in world.js. Health and speed scale with the wave (see waves.js).
 
@@ -18,6 +20,7 @@ export const ENEMY_TYPES = {
   wisp:      { hp: 24,  speed: 120, radius: 12, damage: 9,  score: 80,  color: '#5fe8ff' },
   splitter:  { hp: 55,  speed: 80,  radius: 18, damage: 14, score: 120, color: '#9dff5f' },
   brute:     { hp: 160, speed: 48,  radius: 26, damage: 22, score: 200, color: '#ff9a3d' },
+  lancer:    { hp: 46,  speed: 108, radius: 13, damage: 16, score: 110, color: '#7a5cff' },
   boss:      { hp: 2400, speed: 55, radius: 52, damage: 28, score: 5000, color: '#ff2e63' },
 };
 
@@ -45,6 +48,8 @@ export function spawnEnemy(world, type, x, y) {
     burst: 0, // boss radial-burst counter
     summonCd: 6,
     phase: 1,
+    spiralT: 0, // boss phase-two spiral clock
+    spiralA: 0, // boss spiral arm angle
   };
   world.enemies.push(enemy);
   world.fx.ring(x, y, def.color, def.radius + 14);
@@ -143,6 +148,41 @@ export function updateEnemy(world, e, dt) {
       }
       break;
     }
+    case 'lancer': {
+      // Approach, telegraph a charge line, then lance through the player's
+      // position. The aim tracks early and locks late — the locked line is
+      // the player's cue to move — and a spent lancer recovers slowly,
+      // which is the price of a missed charge.
+      if (e.state === 'chase') {
+        steer(e, p.x, p.y, e.speed, dt);
+        if (e.stateT > 1.1 && d < 430) {
+          e.state = 'aim';
+          e.stateT = 0;
+          e.angle = angleTo(e.x, e.y, p.x, p.y);
+        }
+      } else if (e.state === 'aim') {
+        if (e.stateT < 0.38) e.angle = angleTo(e.x, e.y, p.x, p.y);
+        if (e.stateT > 0.7) {
+          e.state = 'charge';
+          e.stateT = 0;
+          world.audio.dash();
+        }
+      } else if (e.state === 'charge') {
+        e.x += Math.cos(e.angle) * 640 * dt;
+        e.y += Math.sin(e.angle) * 640 * dt;
+        if (e.stateT > 0.55) {
+          e.state = 'recover';
+          e.stateT = 0;
+        }
+      } else {
+        steer(e, p.x, p.y, e.speed * 0.3, dt);
+        if (e.stateT > 0.7) {
+          e.state = 'chase';
+          e.stateT = 0;
+        }
+      }
+      break;
+    }
     case 'boss': {
       // The Ash Titan: slow chase, radial bursts, and cinder summons.
       // Under half health it enrages: faster bursts, faster chase.
@@ -173,6 +213,18 @@ export function updateEnemy(world, e, dt) {
           spawnEnemy(world, 'cinder', s.x, s.y);
         }
         world.banner('THE TITAN CALLS ITS KIND', '#ff9a3d');
+      }
+      // Phase two's second voice: below two-fifths health the Titan weaves
+      // a twin spiral over its bursts — slower orbs, but no gap to stand in.
+      if (e.phase === 2 && e.hp < e.maxHp * 0.4) {
+        e.spiralT -= dt;
+        if (e.spiralT <= 0) {
+          e.spiralT = 0.13;
+          e.spiralA += 0.45;
+          for (const arm of [0, Math.PI]) {
+            world.spawnEnemyBullet(e.x, e.y, e.spiralA + arm, 118, 10, '#ff7a2f');
+          }
+        }
       }
       break;
     }

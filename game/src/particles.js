@@ -6,6 +6,7 @@ import { range } from './random.js';
 
 const MAX_PARTICLES = 420;
 const MAX_TEXTS = 40;
+const MAX_DECALS = 90;
 
 export class FX {
   constructor(rng) {
@@ -13,6 +14,7 @@ export class FX {
     this.particles = [];
     this.texts = [];
     this.rings = [];
+    this.decals = []; // scorch marks: where foes fell, lingering on the floor
     this.shake = 0;
     this.hitStop = 0;
     this.flash = 0; // full-screen damage vignette strength 0..1
@@ -57,6 +59,19 @@ export class FX {
     this.rings.push({ x, y, color, radius, life: 0.45, maxLife: 0.45 });
   }
 
+  // A scorch mark where a foe fell: a dark burn with a rim of its own
+  // colour. Decals linger for seconds, so a long fight writes its history
+  // on the arena floor instead of vanishing with the burst.
+  scorch(x, y, color, radius) {
+    if (this.decals.length >= MAX_DECALS) this.decals.shift();
+    this.decals.push({
+      x, y, color,
+      radius: radius * 1.5 + 6,
+      life: 7,
+      maxLife: 7,
+    });
+  }
+
   text(x, y, str, color = '#f2ead8', size = 15) {
     if (this.texts.length >= MAX_TEXTS) this.texts.shift();
     this.texts.push({ x, y, str, color, size, life: 0.9, maxLife: 0.9 });
@@ -90,6 +105,8 @@ export class FX {
     this.texts = this.texts.filter((t) => t.life > 0);
     for (const r of this.rings) r.life -= dt;
     this.rings = this.rings.filter((r) => r.life > 0);
+    for (const d of this.decals) d.life -= dt;
+    this.decals = this.decals.filter((d) => d.life > 0);
     this.shake = Math.max(0, this.shake - dt * 42);
     if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 2.2);
   }

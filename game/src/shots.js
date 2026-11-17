@@ -5,15 +5,20 @@
 // screenshots show are the game's own screens, staged with fixed inputs.
 //
 //   ?shot=title&seed=7    the title over the live attract arena
-//   ?shot=play&seed=7     the wave-10 boss fight: the Ash Titan, its radial
-//                         bursts, its summoned cinders and the boss bar
+//   ?shot=play&seed=7     the wave-10 boss fight: the Ash Titan enraged in
+//                         its second phase, spiral barrage in flight, a
+//                         lancer's locked charge line, the combo at ×4
 //   ?shot=victory&seed=7  the victory screen with final stats
+//   ?shot=draft&seed=7    the blessing draft between waves: three cards,
+//                         two blessings already owned, the build so far
 //   ?shot=over&seed=7     the game-over screen with final stats
 // The renderer sets window.__shotReady once the scene has been drawn.
 
 import { STEP } from './config.js';
 import { createWorld, startGame, update, applyChoice, nextWave } from './world.js';
-import { UPGRADES } from './upgrades.js';
+import { spawnEnemy } from './enemies.js';
+import { UPGRADES, rollChoices } from './upgrades.js';
+import { createCombo } from './combo.js';
 import { drawWorld } from './render.js';
 
 // Grant one blessing through the same apply path the draft screen uses, so
@@ -111,12 +116,19 @@ export function renderShot(ctx, scene, seed) {
       step += 1;
     }
     if (world.bossRef && world.phase === 'playing') {
-      // The fight is already joined: the Titan has taken real damage through
-      // the game's own damage path, so both of its health bars show it.
-      world.damageEnemy(world.bossRef, 1400, true);
+      // The fight is already joined — and already desperate: the Titan has
+      // taken real damage through the game's own damage path, past its
+      // enrage and into the spiral phase, so the frame shows phase two.
+      world.damageEnemy(world.bossRef, 3800, true);
+      // The staged run arrives hot: a 16-kill chain at ×4, still alive.
+      world.combo.chain = 16;
+      world.combo.mult = 4;
+      world.combo.timer = 3.5;
+      world.combo.best = 16;
+      world.combo.bestMult = 4;
       // The frame, four-fifths of a second later: a radial burst just fired
-      // and still expanding, spread-shot volleys streaming back at the Titan,
-      // its summoned cinders closing in, damage numbers still floating.
+      // and still expanding, spiral orbs weaving out, spread-shot volleys
+      // streaming back at the Titan, damage numbers still floating.
       world.bossRef.shootCd = 0.3;
       world.player.spreadT = 6;
       world.player.shield = 1;
@@ -124,6 +136,27 @@ export function renderShot(ctx, scene, seed) {
       for (let i = 0; i < 48 && world.phase === 'playing'; i++) {
         update(world, scriptedInput(world, step), STEP);
         step += 1;
+      }
+      if (world.phase === 'playing' && world.bossRef) {
+        // Two lancers have the Warden lined up, their charge lines locked —
+        // staged in the aim state the game itself leaves them in.
+        const A = world.ARENA;
+        const spots = [
+          [world.player.x - 330, world.player.y + 150],
+          [world.player.x + 300, world.player.y - 190],
+        ];
+        for (const [sx, sy] of spots) {
+          const l = spawnEnemy(
+            world, 'lancer',
+            Math.max(A.x + 20, Math.min(A.x + A.w - 20, sx)),
+            Math.max(A.y + 20, Math.min(A.y + A.h - 20, sy)),
+          );
+          l.state = 'aim';
+          l.stateT = 0.45;
+          l.angle = Math.atan2(world.player.y - l.y, world.player.x - l.x);
+        }
+        // The next radial burst is charging: its warning ring is swelling.
+        world.bossRef.shootCd = 0.35;
       }
     }
     if (world.phase === 'playing') {
@@ -151,7 +184,8 @@ export function renderShot(ctx, scene, seed) {
     world.kills = 214;
     world.wave = 10;
     world.runTime = 742;
-    world.stats = { score: 18740, wave: 10, kills: 214, accuracy: 71, time: 742 };
+    world.combo = createCombo(); // the chain is spent: a clean end screen
+    world.stats = { score: 18740, wave: 10, kills: 214, accuracy: 71, time: 742, bestCombo: 34, bestMult: 8 };
     world.best = 18740;
     world.newBest = true;
     world.phase = 'victory';
@@ -178,7 +212,7 @@ export function renderShot(ctx, scene, seed) {
     world.kills = 96;
     world.wave = 7;
     world.runTime = 388;
-    world.stats = { score: 8430, wave: 7, kills: 96, accuracy: 64, time: 388 };
+    world.stats = { score: 8430, wave: 7, kills: 96, accuracy: 64, time: 388, bestCombo: 21, bestMult: 5 };
     world.best = 8430;
     world.newBest = false;
     world.phase = 'over';
@@ -186,6 +220,37 @@ export function renderShot(ctx, scene, seed) {
     // The last embers of the fallen lantern, still rising as the dark settles.
     for (let i = 0; i < 3; i++) world.fx.embers(world.player.x, world.player.y, 4);
     world.fx.ring(world.player.x, world.player.y, '#ff5a4e', 30);
+    drawWorld(ctx, world);
+  } else if (scene === 'draft') {
+    // The run's decision point, staged the way the game reaches it: a real
+    // opening stretch first, then the field is carried to the end of wave 3
+    // with two blessings already drafted through the real apply path, and
+    // the draft the game itself rolls is opened over the quiet arena.
+    startGame(world);
+    stageFight(world, 8);
+    if (world.phase === 'over' || world.phase === 'victory') {
+      startGame(world);
+      stageFight(world, 4);
+    }
+    world.enemies = [];
+    world.spawnQueue = [];
+    world.bullets = [];
+    world.enemyBullets = [];
+    world.pickups = [];
+    world.fx.particles = [];
+    world.fx.texts = [];
+    world.fx.rings = [];
+    world.fx.decals = [];
+    world.combo = createCombo();
+    grantBlessing(world, 'damage');
+    grantBlessing(world, 'speed');
+    world.wave = 3;
+    world.score = 3950;
+    world.kills = 61;
+    world.best = 18740;
+    world.choices = rollChoices(world.rng, world.player.owned);
+    world.phase = 'upgrade';
+    world.hoverChoice = 1; // the middle card under the player's hand
     drawWorld(ctx, world);
   } else {
     drawWorld(ctx, world);

@@ -45,7 +45,16 @@ export const SCORE = {
   wisp: 80,
   splitter: 120,
   brute: 200,
+  lancer: 110,
   boss: 5000,
+};
+
+// The kill chain: how long a kill keeps it alive, how many links raise the
+// score multiplier by one, and the multiplier's cap. combo.js runs the chain.
+export const COMBO = {
+  window: 3.5, // seconds
+  killsPerTier: 5,
+  maxMult: 8,
 };
 
 // Drop chances on an enemy's death (rolled once per kill).

@@ -14,11 +14,12 @@ import { spawnEnemy, edgeSpawn, updateEnemy } from './enemies.js';
 import { waveComp, spawnInterval, waveTitle } from './waves.js';
 import { spawnPickup, applyPickup } from './pickups.js';
 import { rollChoices } from './upgrades.js';
+import { createCombo, registerKill, updateCombo, comboColor } from './combo.js';
 import { loadBest, saveBest } from './storage.js';
 
 // The attract rotation behind the title screen: one of each main foe kind
 // drifts in over time, so the title already shows the variety a run holds.
-const TITLE_KINDS = ['cinder', 'wisp', 'spitter', 'splitter', 'brute', 'cinder', 'wisp'];
+const TITLE_KINDS = ['cinder', 'wisp', 'lancer', 'spitter', 'splitter', 'brute', 'cinder', 'wisp'];
 
 export function createWorld(seed, audio) {
   const rng = (() => {
@@ -41,6 +42,7 @@ export function createWorld(seed, audio) {
     wave: 0,
     score: 0,
     kills: 0,
+    combo: createCombo(), // the kill chain (combo.js): chain, multiplier, timer
     shotsFired: 0,
     shotsHit: 0,
     best: loadBest(),
@@ -126,6 +128,7 @@ export function startGame(world) {
   world.pickups = [];
   world.score = 0;
   world.kills = 0;
+  world.combo = createCombo();
   world.shotsFired = 0;
   world.shotsHit = 0;
   world.wave = 0;
@@ -178,11 +181,17 @@ export function spawnEnemyBullet(world, x, y, angle, speed, damage, color) {
   world.spawnEnemyBullet(x, y, angle, speed, damage, color);
 }
 
-export function damageEnemy(world, e, amount, silent = false) {
+export function damageEnemy(world, e, amount, silent = false, crit = false) {
   e.hp -= amount;
   e.flash = 0.09;
   if (!silent) {
-    world.fx.text(e.x + range(world.rng, -8, 8), e.y - e.radius - 6, String(Math.round(amount)), '#ffd97a', 13);
+    // A crit pops bigger and hotter than a plain hit: the one number the
+    // eye is meant to catch in a stream of fire.
+    if (crit) {
+      world.fx.text(e.x + range(world.rng, -8, 8), e.y - e.radius - 8, String(Math.round(amount)), '#ffb347', 19);
+    } else {
+      world.fx.text(e.x + range(world.rng, -8, 8), e.y - e.radius - 6, String(Math.round(amount)), '#ffd97a', 13);
+    }
   }
   if (e.hp <= 0) killEnemy(world, e);
 }
@@ -192,11 +201,26 @@ export function killEnemy(world, e) {
   if (idx === -1) return;
   world.enemies.splice(idx, 1);
   world.kills += 1;
-  world.score += e.score;
+
+  // The chain pays the kill: base score times the live multiplier, a gold
+  // pop for what it paid, and a shout at the player when the tier rises.
+  const p = world.player;
+  const { gained, tierUp } = registerKill(world.combo, e.score);
+  world.score += gained;
+  if (world.combo.mult > 1) {
+    world.fx.text(e.x, e.y - e.radius - 24, `+${gained}`, comboColor(world.combo.mult), world.combo.mult >= 5 ? 19 : 16);
+  }
+  if (tierUp) {
+    world.fx.text(p.x, p.y - 46, `COMBO ×${world.combo.mult}`, comboColor(world.combo.mult), 26);
+    world.fx.ring(p.x, p.y, comboColor(world.combo.mult), 42);
+  }
+
   world.fx.burst(e.x, e.y, e.color, e.type === 'boss' ? 60 : e.type === 'brute' ? 26 : 14);
   world.fx.ring(e.x, e.y, e.color, e.radius + 10);
+  world.fx.scorch(e.x, e.y, e.color, e.radius);
   world.fx.addShake(e.type === 'boss' ? 14 : e.type === 'brute' ? 6 : 2);
   if (e.type === 'boss') world.fx.stopTime(0.25);
+  else if (e.type === 'brute') world.fx.stopTime(0.05); // a heavy kill lands
   world.audio.explode(e.type === 'boss' || e.type === 'brute');
 
   if (e.type === 'splitter') {
@@ -250,6 +274,8 @@ function finishStats(world) {
     kills: world.kills,
     accuracy,
     time: world.runTime,
+    bestCombo: world.combo.best,
+    bestMult: world.combo.bestMult,
   };
   if (world.score > world.best) {
     world.best = world.score;
@@ -321,6 +347,7 @@ export function update(world, input, dt) {
   // --- playing ---
   if (world.paused) return;
   world.runTime += dt;
+  updateCombo(world.combo, dt); // the chain ages even while the fight rages
   const p = world.player;
 
   // Hit-stop freezes the world briefly after heavy impacts.
@@ -393,7 +420,9 @@ export function update(world, input, dt) {
         let dmg = b.damage;
         let crit = false;
         if (world.rng() < p.crit) { dmg *= 2; crit = true; }
-        damageEnemy(world, e, dmg);
+        damageEnemy(world, e, dmg, false, crit);
+        // A crit carries a breath of weight (~50 ms) — earned, never routine.
+        if (crit) world.fx.stopTime(0.045);
         world.fx.burst(b.x, b.y, '#ffd97a', crit ? 8 : 4, 180);
         world.audio.hit();
         if (b.pierce > 0) {

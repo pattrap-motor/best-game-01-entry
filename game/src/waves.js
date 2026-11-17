@@ -29,6 +29,7 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 3);
       add('spitter', 4);
       add('wisp', 4);
+      add('lancer', 2);
       break;
     case 5:
       add('cinder', 16);
@@ -36,6 +37,7 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 4);
       add('wisp', 5);
       add('spitter', 4);
+      add('lancer', 3);
       break;
     case 6:
       add('cinder', 18);
@@ -43,6 +45,7 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 5);
       add('wisp', 6);
       add('spitter', 5);
+      add('lancer', 4);
       break;
     case 7:
       add('cinder', 20);
@@ -50,6 +53,7 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 6);
       add('wisp', 7);
       add('spitter', 6);
+      add('lancer', 5);
       break;
     case 8:
       add('cinder', 22);
@@ -57,6 +61,7 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 7);
       add('wisp', 8);
       add('spitter', 7);
+      add('lancer', 6);
       break;
     case 9:
       add('cinder', 24);
@@ -64,11 +69,13 @@ export function waveComp(wave, rng = Math.random) {
       add('splitter', 8);
       add('wisp', 9);
       add('spitter', 8);
+      add('lancer', 7);
       break;
     case 10:
       // The boss arrives alone; its summons and a small trickle keep pressure on.
       add('boss', 1);
       add('cinder', 6);
+      add('lancer', 2);
       break;
     default:
       add('cinder', 8 + wave * 2);
